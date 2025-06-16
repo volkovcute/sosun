@@ -1,0 +1,173 @@
+===========
+КРАТКИЙ УРОК ПО VIM:
+SHIFT + I войти в режим редактирование
+ESC выйти из режима редактирования 
+SHIFT + Z + Z сохранить и выйти
+===========
+ISP
+1. mkdir /etc/net/ifaces/ens19
+2. mkdir /etc/net/ifaces/ens20
+3. cp /etc/net/ifaces/ens18/options /etc/net/ifaces/ens19/options
+4. cp /etc/net/ifaces/ens18/options /etc/net/ifaces/ens20/options
+
+5. vim /etc/net/ifaces/ens19/options
+ставим BOOTPROTO=static
+5. vim /etc/net/ifaces/ens20/options
+ставим BOOTPROTO=static
+
+6. vim /etc/net/ifaces/ens19/ipv4address
+172.16.4.1/28 (БУДУТ ДРУГИЕ!)
+7. vim /etc/net/ifaces/ens20/ipv4address
+172.16.5.1/28 (БУДУТ ДРУГИЕ!)
+
+8. systemctl restart network
+9. apt-get update
+10. apt-get install -y iptables
+11. iptables -t nat -j MASQUERADE -A POSTROUTING -o ens18
+12. iptables-save >> /etc/sysconfig/iptables
+13. vim /etc/net/sysctl.conf
+forward = 1
+14. systemctl restart network
+15. hostnamectl hostname ISP.au-team.irpo;exec bash
+16. systemctl start iptables
+17. systemctl enable iptables
+18. systemctl status iptables
+нужно чтобы был ACTIVE
+
+======
+HQ-RTR
+1. hostnamectl hostname HQ-RTR.au-team.irpo;exec bash
+2. vim /etc/net/ifaces/ens18/options
+замена на BOOTPROTO=static, SYSTEMD_BOOTPROTO=static, nm_controlled=yes
+3. vim /etc/net/ifaces/ens18/ipv4address
+172.16.4.2/28
+4. vim /etc/net/ifaces/ens18/ipv4route
+default via 172.16.4.1
+5. systemctl restart network
+6. vim /etc/net/ifaces/ens18/resolv.conf
+nameserver 8.8.8.8
+7. apt-get update
+8. apt-get install -y NetworkManager-tui
+9. systemctl enable --now NetworkManager
+10. nmtui
+11. vim /etc/net/sysctl.conf
+forward = 1
+12. systemctl restart network
+
+profile name - BR-RTR т.к мы к нему подключаемся
+Device - GRE-1
+Mode - GRE
+Parent - ens18
+Local IP - 172.16.4.2 - нашей машины
+Remote IP - 172.16.5.2 - к которой подключаемся (BR-RTR)
+IPv4 CONF - manual открываем  show
+Addresses - 10.5.5.1/30
+
+13. systemctl restart network
+14. systemctl restart NetworkManager
+====
+BR-RTR
+1. hostnamectl hostname BR-RTR.au-team.irpo;exec bash
+2. vim /etc/net/ifaces/ens18/options
+замена на static, nm_controlled=yes
+3. vim /etc/net/ifaces/ens18/ipv4address
+172.16.5.2/28
+4. vim /etc/net/ifaces/ens18/ipv4route
+default via 172.16.5.1
+5. vim /etc/net/ifaces/ens18/resolv.conf
+nameserver 8.8.8.8
+6.1. vim /etc/net/ifaces/ens19/ipv4address
+192.168.0.1/28
+6. systemctl restart network
+7. apt-get update
+8. apt-get install -y NetworkManager-tui
+9. systemctl enable --now NetworkManager
+10. vim /etc/net/sysctl.conf
+forward = 1
+11. systemctl restart network
+
+12. nmtui
+profile name - HQ-RTR т.к мы к нему подключаемся
+Device - GRE-1
+Mode - GRE
+Parent - ens18
+Local IP - 172.16.5.2 - нашей машины
+Remote IP - 172.16.4.2 - к которой подключаемся (HQ-RTR)
+
+IPv4 CONF - manual открываем  show
+Addresses - 10.5.5.2/30
+
+13. systemctl restart network
+14. systemctl restart NetworkManager
+====
+HQ-RTR
+1. iptables -t nat -j MASQUERADE -A POSTROUTING -o ens18
+2. iptables-save >> /etc/sysconfig/iptables
+3. systemctl restart network
+4. systemctl restart NetworkManager
+5. apt-get install openvswitch
+6. systemctl enable --now openvswitch
+
+7. ovs-vsctl add-br HQ-SW
+8. ovs-vsctl add-port HQ-SW ens19
+9. ovs-vsctl add-port HQ-SW vlan100 tag=100 -- set interface vlan100 type=internal
+10. ovs-vsctl add-port HQ-SW vlan200 tag=200 -- set interface vlan200 type=internal
+11. ovs-vsctl add-port HQ-SW vlan999 tag=999 -- set interface vlan999 type=internal
+
+12. mkdir /etc/net/ifaces/vlan100
+13. mkdir /etc/net/ifaces/vlan200
+14. mkdir /etc/net/ifaces/vlan999
+
+15. cp /etc/net/ifaces/ens18/options /etc/net/ifaces/vlan100/options
+16. cp /etc/net/ifaces/ens18/options /etc/net/ifaces/vlan200/options
+17. cp /etc/net/ifaces/ens18/options /etc/net/ifaces/vlan999/options
+
+18. echo '192.168.100.1/28' > /etc/net/ifaces/vlan100/ipv4address
+19. echo '192.168.200.1/28' > /etc/net/ifaces/vlan200/ipv4address
+20. echo '192.168.99.1/28' > /etc/net/ifaces/vlan999/ipv4address
+
+21. systemctl restart network
+
+====
+HQ-SRV и BR-SRV (!!!!!!!!!!!!!!!!!!!)
+1. hostnamectl hostname HQ-SRV.au-team.irpo;exec bash
+2. adduser sshuser
+3. passwd sshuser 
+P@ssw0rd
+4. usermod -u 1010 sshuser
+5. visudo /etc/sudoers
+WHEEL_USERS ALL
+WHEEL_USERS ALL
+раскомментировать
+6. vim /etc/group
+wheel добавить sshuser
+
+7. adduser net_admin
+8. passwd sshuser 
+P@$$word
+9. visudo /etc/sudoers
+===
+BR-RTR
+1. apt-get install -y frr
+2. vim /etc/frr/daemons
+ospfd=yes
+3. systemctl enable --now frr
+4. vtysh
+
+conf t
+ip forwarding
+router ospf
+network 10.5.5.0/30 area 0
+network 192.168.0.0/28 area 0
+passive-interface default
+ex
+
+interface GRE-1
+no ip ospf passive
+ex
+
+ex
+
+wr
+
+5. systemctl restart frr.service
